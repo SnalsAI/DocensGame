@@ -1,0 +1,142 @@
+{
+  "realm": "edu-atelier",
+  "enabled": true,
+  "displayName": "EDU-ATELIER",
+  "displayNameHtml": "<strong>EDU-ATELIER</strong>",
+  "loginTheme": "keycloak",
+  "accountTheme": "keycloak.v2",
+  "adminTheme": "keycloak.v2",
+  "emailTheme": "keycloak",
+  "internationalizationEnabled": true,
+  "supportedLocales": ["it", "en"],
+  "defaultLocale": "it",
+  "sslRequired": "external",
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "rememberMe": true,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "minimumQuickLoginWaitSeconds": 60,
+  "waitIncrementSeconds": 60,
+  "quickLoginCheckMilliSeconds": 1000,
+  "maxDeltaTimeSeconds": 43200,
+  "failureFactor": 5,
+  "roles": {
+    "realm": [
+      {
+        "name": "admin",
+        "description": "Administrator role"
+      },
+      {
+        "name": "teacher",
+        "description": "Teacher role"
+      },
+      {
+        "name": "student",
+        "description": "Student role"
+      }
+    ]
+  },
+  "defaultRoles": ["student"],
+  "clients": [
+    {
+      "clientId": "edu-atelier-backend",
+      "name": "EDU-ATELIER Backend",
+      "description": "Backend API client",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "backend-secret-change-me",
+      "redirectUris": ["http://localhost:3001/*"],
+      "webOrigins": ["http://localhost:3001"],
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": false
+    },
+    {
+      "clientId": "edu-atelier-frontend",
+      "name": "EDU-ATELIER Frontend",
+      "description": "Frontend Web App client",
+      "enabled": true,
+      "publicClient": true,
+      "redirectUris": [
+        "http://localhost:3000/*",
+        "http://localhost:3000/auth/callback"
+      ],
+      "webOrigins": ["http://localhost:3000"],
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false
+    }
+  ],
+  "users": [
+    {
+      "username": "admin@edu-atelier.it",
+      "email": "admin@edu-atelier.it",
+      "firstName": "Admin",
+      "lastName": "Sistema",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin123",
+          "temporary": true
+        }
+      ],
+      "realmRoles": ["admin"]
+    },
+    {
+      "username": "docente@scuola.it",
+      "email": "docente@scuola.it",
+      "firstName": "Mario",
+      "lastName": "Rossi",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "docente123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["teacher"]
+    },
+    {
+      "username": "studente@scuola.it",
+      "email": "studente@scuola.it",
+      "firstName": "Giulia",
+      "lastName": "Bianchi",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "studente123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["student"]
+    }
+  ],
+  "scopeMappings": [],
+  "clientScopeMappings": {},
+  "smtpServer": {},
+  "eventsEnabled": false,
+  "eventsListeners": ["jboss-logging"],
+  "enabledEventTypes": [],
+  "adminEventsEnabled": false,
+  "adminEventsDetailsEnabled": false,
+  "passwordPolicy": "length(8) and digits(1) and upperCase(1)"
+}

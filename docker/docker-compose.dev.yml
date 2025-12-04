@@ -70,7 +70,9 @@ services:
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-eduatelier_dev}
     ports:
       - "8080:8080"
-    command: start-dev
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import
+    command: start-dev --import-realm
     depends_on:
       postgres:
         condition: service_healthy
