@@ -1,0 +1,430 @@
+// EDU-ATELIER Database Schema
+// PostgreSQL with Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USER MANAGEMENT ====================
+
+model User {
+  id          String   @id @default(uuid())
+  keycloakId  String   @unique @map("keycloak_id")
+  email       String   @unique
+  firstName   String   @map("first_name")
+  lastName    String   @map("last_name")
+  role        UserRole @default(STUDENT)
+  avatarUrl   String?  @map("avatar_url")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  studentProfile   StudentProfile?
+  teacherProfile   TeacherProfile?
+  teachingClasses  Classroom[]       @relation("TeacherClassrooms")
+  enrolledClasses  ClassroomStudent[]
+  contents         Content[]
+  gameSessions     GameSession[]     @relation("GameHost")
+  gameParticipants GameParticipant[]
+  xpRewards        XPReward[]
+  badges           UserBadge[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+model StudentProfile {
+  id                String   @id @default(uuid())
+  userId            String   @unique @map("user_id")
+  isDsa             Boolean  @default(false) @map("is_dsa")
+  dsaType           String?  @map("dsa_type") // dislessia, disgrafia, discalculia, disortografia
+  isBes             Boolean  @default(false) @map("is_bes")
+  besDescription    String?  @map("bes_description")
+  isL2              Boolean  @default(false) @map("is_l2")
+  l2Level           String?  @map("l2_level") // A1, A2, B1, B2, C1, C2
+  preferredFontSize String?  @map("preferred_font_size")
+  highContrast      Boolean  @default(false) @map("high_contrast")
+  audioEnabled      Boolean  @default(true) @map("audio_enabled")
+  extraTime         Int      @default(0) @map("extra_time") // percentuale tempo extra per giochi
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("student_profiles")
+}
+
+model TeacherProfile {
+  id           String   @id @default(uuid())
+  userId       String   @unique @map("user_id")
+  schoolName   String?  @map("school_name")
+  subjects     String[] // materie insegnate
+  bio          String?
+  yearsOfExp   Int?     @map("years_of_experience")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("teacher_profiles")
+}
+
+// ==================== CLASSROOM MANAGEMENT ====================
+
+model Classroom {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  code        String   @unique // codice per join studenti
+  teacherId   String   @map("teacher_id")
+  schoolYear  String?  @map("school_year")
+  subject     String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  teacher      User               @relation("TeacherClassrooms", fields: [teacherId], references: [id])
+  students     ClassroomStudent[]
+  contents     Content[]
+  gameSessions GameSession[]
+
+  @@map("classrooms")
+}
+
+model ClassroomStudent {
+  id          String   @id @default(uuid())
+  classroomId String   @map("classroom_id")
+  studentId   String   @map("student_id")
+  joinedAt    DateTime @default(now()) @map("joined_at")
+  isActive    Boolean  @default(true) @map("is_active")
+
+  classroom Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  student   User      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([classroomId, studentId])
+  @@map("classroom_students")
+}
+
+// ==================== CONTENT MANAGEMENT ====================
+
+model Content {
+  id           String      @id @default(uuid())
+  title        String
+  description  String?
+  type         ContentType
+  classroomId  String?     @map("classroom_id")
+  authorId     String      @map("author_id")
+  rawContent   String?     @map("raw_content") // contenuto originale
+  parsedData   Json?       @map("parsed_data") // dati estratti dall'AI
+  fileUrl      String?     @map("file_url")
+  status       ContentStatus @default(DRAFT)
+  isPublic     Boolean     @default(false) @map("is_public")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  classroom    Classroom?    @relation(fields: [classroomId], references: [id])
+  author       User          @relation(fields: [authorId], references: [id])
+  videoLessons VideoLesson[]
+  quizzes      Quiz[]
+  conceptMaps  ConceptMap[]
+  summaries    Summary[]
+
+  @@map("contents")
+}
+
+enum ContentType {
+  TEXT
+  PDF
+  IMAGE
+  SLIDESHOW
+  IMPORTED
+}
+
+enum ContentStatus {
+  DRAFT
+  PROCESSING
+  READY
+  ERROR
+}
+
+// ==================== VIDEO LESSONS ====================
+
+model VideoLesson {
+  id              String   @id @default(uuid())
+  contentId       String   @map("content_id")
+  title           String
+  script          String?  // script generato dall'AI
+  audioUrl        String?  @map("audio_url")
+  videoUrl        String?  @map("video_url")
+  thumbnailUrl    String?  @map("thumbnail_url")
+  duration        Int?     // durata in secondi
+  avatarId        String?  @map("avatar_id")
+  status          VideoStatus @default(PENDING)
+  processingError String?  @map("processing_error")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  content      Content            @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  interactions VideoInteraction[]
+  views        VideoView[]
+
+  @@map("video_lessons")
+}
+
+enum VideoStatus {
+  PENDING
+  GENERATING_SCRIPT
+  GENERATING_AUDIO
+  GENERATING_VIDEO
+  PROCESSING
+  READY
+  ERROR
+}
+
+model VideoInteraction {
+  id            String          @id @default(uuid())
+  videoLessonId String          @map("video_lesson_id")
+  type          InteractionType
+  timestamp     Int             // secondo nel video
+  data          Json            // configurazione dell'interazione (quiz, nota, etc)
+  createdAt     DateTime        @default(now()) @map("created_at")
+
+  videoLesson VideoLesson @relation(fields: [videoLessonId], references: [id], onDelete: Cascade)
+
+  @@map("video_interactions")
+}
+
+enum InteractionType {
+  QUIZ
+  NOTE
+  BOOKMARK
+  LINK
+  PAUSE
+}
+
+model VideoView {
+  id            String   @id @default(uuid())
+  videoLessonId String   @map("video_lesson_id")
+  userId        String   @map("user_id")
+  watchedAt     DateTime @default(now()) @map("watched_at")
+  duration      Int      @default(0) // secondi guardati
+  completed     Boolean  @default(false)
+
+  videoLesson VideoLesson @relation(fields: [videoLessonId], references: [id], onDelete: Cascade)
+
+  @@map("video_views")
+}
+
+// ==================== QUIZZES & EXERCISES ====================
+
+model Quiz {
+  id         String     @id @default(uuid())
+  contentId  String     @map("content_id")
+  title      String
+  type       QuizType
+  questions  Json       // array di domande
+  settings   Json?      // impostazioni (tempo, tentativi, etc)
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+
+  content   Content      @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  attempts  QuizAttempt[]
+
+  @@map("quizzes")
+}
+
+enum QuizType {
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+  FILL_BLANK
+  MATCHING
+  OPEN_ENDED
+  MIXED
+}
+
+model QuizAttempt {
+  id          String   @id @default(uuid())
+  quizId      String   @map("quiz_id")
+  studentId   String   @map("student_id")
+  answers     Json     // risposte dello studente
+  score       Float
+  maxScore    Float    @map("max_score")
+  timeSpent   Int?     @map("time_spent") // secondi
+  completedAt DateTime @default(now()) @map("completed_at")
+
+  quiz Quiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@map("quiz_attempts")
+}
+
+// ==================== AI GENERATED CONTENT ====================
+
+model ConceptMap {
+  id        String   @id @default(uuid())
+  contentId String   @map("content_id")
+  title     String
+  nodes     Json     // nodi della mappa
+  edges     Json     // connessioni tra nodi
+  createdAt DateTime @default(now()) @map("created_at")
+
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@map("concept_maps")
+}
+
+model Summary {
+  id        String      @id @default(uuid())
+  contentId String      @map("content_id")
+  type      SummaryType
+  text      String
+  level     String?     // livello di semplificazione (standard, dsa, l2)
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@map("summaries")
+}
+
+enum SummaryType {
+  BRIEF
+  DETAILED
+  KEY_POINTS
+  DSA_ADAPTED
+  L2_ADAPTED
+}
+
+// ==================== GAMOLOGY ENGINE ====================
+
+model GameSession {
+  id           String       @id @default(uuid())
+  gameType     GameType     @map("game_type")
+  classroomId  String       @map("classroom_id")
+  hostId       String       @map("host_id")
+  contentId    String?      @map("content_id") // contenuto associato
+  roomCode     String       @unique @map("room_code")
+  status       GameStatus   @default(WAITING)
+  settings     Json?        // impostazioni del gioco
+  questions    Json?        // domande del gioco
+  startedAt    DateTime?    @map("started_at")
+  endedAt      DateTime?    @map("ended_at")
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  classroom    Classroom         @relation(fields: [classroomId], references: [id])
+  host         User              @relation("GameHost", fields: [hostId], references: [id])
+  participants GameParticipant[]
+
+  @@map("game_sessions")
+}
+
+enum GameType {
+  RAPID_QUIZ
+  WORD_RUSH
+  SQUAD_PUZZLE
+  BOSS_FIGHT
+  DUNGEON
+  TOURNAMENT
+}
+
+enum GameStatus {
+  WAITING
+  STARTING
+  IN_PROGRESS
+  PAUSED
+  FINISHED
+  CANCELLED
+}
+
+model GameParticipant {
+  id            String   @id @default(uuid())
+  gameSessionId String   @map("game_session_id")
+  userId        String   @map("user_id")
+  nickname      String?
+  score         Int      @default(0)
+  correctAnswers Int     @default(0) @map("correct_answers")
+  wrongAnswers  Int      @default(0) @map("wrong_answers")
+  rank          Int?
+  joinedAt      DateTime @default(now()) @map("joined_at")
+  leftAt        DateTime? @map("left_at")
+
+  gameSession GameSession @relation(fields: [gameSessionId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id])
+
+  @@unique([gameSessionId, userId])
+  @@map("game_participants")
+}
+
+// ==================== REWARDS & GAMIFICATION ====================
+
+model XPReward {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  amount    Int
+  source    XPSource
+  sourceId  String?  @map("source_id") // ID del quiz/gioco/lezione
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("xp_rewards")
+}
+
+enum XPSource {
+  LESSON_COMPLETED
+  QUIZ_COMPLETED
+  GAME_PARTICIPATION
+  GAME_WIN
+  DAILY_LOGIN
+  STREAK_BONUS
+  ACHIEVEMENT
+}
+
+model Badge {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String
+  iconUrl     String   @map("icon_url")
+  criteria    Json     // criteri per ottenere il badge
+  xpValue     Int      @default(0) @map("xp_value")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  users UserBadge[]
+
+  @@map("badges")
+}
+
+model UserBadge {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  badgeId   String   @map("badge_id")
+  earnedAt  DateTime @default(now()) @map("earned_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge Badge @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+  @@map("user_badges")
+}
+
+// ==================== AVATARS ====================
+
+model Avatar {
+  id          String   @id @default(uuid())
+  name        String
+  imageUrl    String   @map("image_url")
+  voiceId     String?  @map("voice_id") // ID voce TTS
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("avatars")
+}

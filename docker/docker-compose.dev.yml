@@ -1,0 +1,203 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: edu-atelier-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-eduatelier}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-eduatelier_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-eduatelier}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts/postgres:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eduatelier"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: edu-atelier-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO (S3-compatible storage)
+  minio:
+    image: minio/minio:latest
+    container_name: edu-atelier-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Keycloak (Authentication)
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    container_name: edu-atelier-keycloak
+    restart: unless-stopped
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin123}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER:-eduatelier}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-eduatelier_dev}
+    ports:
+      - "8080:8080"
+    command: start-dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # PostHog (Analytics) - Self-hosted
+  posthog:
+    image: posthog/posthog:latest
+    container_name: edu-atelier-posthog
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://eduatelier:eduatelier_dev@postgres:5432/posthog
+      REDIS_URL: redis://redis:6379
+      SECRET_KEY: ${POSTHOG_SECRET_KEY:-posthog_secret_key_change_me}
+      DISABLE_SECURE_SSL_REDIRECT: "true"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+
+  # Backend (NestJS) - Development
+  backend:
+    build:
+      context: ../apps/backend
+      dockerfile: Dockerfile.dev
+    container_name: edu-atelier-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgres://eduatelier:eduatelier_dev@postgres:5432/eduatelier
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: edu-atelier
+      AI_SERVICE_URL: http://ai-service:8001
+      VIDEO_SERVICE_URL: http://video-service:8002
+    ports:
+      - "3001:3001"
+    volumes:
+      - ../apps/backend:/app
+      - /app/node_modules
+    depends_on:
+      - postgres
+      - redis
+      - keycloak
+
+  # Frontend (Next.js) - Development
+  frontend:
+    build:
+      context: ../apps/frontend
+      dockerfile: Dockerfile.dev
+    container_name: edu-atelier-frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXT_PUBLIC_KEYCLOAK_URL: http://localhost:8080
+      NEXT_PUBLIC_KEYCLOAK_REALM: edu-atelier
+      NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: edu-atelier-frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../apps/frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+
+  # AI Service (FastAPI + Python)
+  ai-service:
+    build:
+      context: ../apps/ai-service
+      dockerfile: Dockerfile.dev
+    container_name: edu-atelier-ai
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: 1
+      MODEL_PATH: /models
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "8001:8001"
+    volumes:
+      - ../apps/ai-service:/app
+      - ai_models:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # Video Service (FastAPI + SadTalker + FFmpeg)
+  video-service:
+    build:
+      context: ../apps/video-service
+      dockerfile: Dockerfile.dev
+    container_name: edu-atelier-video
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: 1
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "8002:8002"
+    volumes:
+      - ../apps/video-service:/app
+      - video_temp:/tmp/videos
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  ai_models:
+  video_temp:
+
+networks:
+  default:
+    name: edu-atelier-network
