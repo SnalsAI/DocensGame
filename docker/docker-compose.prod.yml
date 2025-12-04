@@ -1,0 +1,392 @@
+version: '3.8'
+
+# ===========================================
+# EDU-ATELIER - Production Docker Compose
+# ===========================================
+# Usage: docker-compose -f docker/docker-compose.prod.yml up -d
+
+services:
+  # ===========================================
+  # Infrastructure Services
+  # ===========================================
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: edu-atelier-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts/postgres:/docker-entrypoint-initdb.d
+      - ./backups/postgres:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - edu-atelier-internal
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: edu-atelier-redis
+    restart: always
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - edu-atelier-internal
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # MinIO (S3-compatible storage)
+  minio:
+    image: minio/minio:latest
+    container_name: edu-atelier-minio
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - edu-atelier-internal
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # Keycloak (Authentication)
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    container_name: edu-atelier-keycloak
+    restart: always
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-auth.localhost}
+      KC_PROXY: edge
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import
+      - keycloak_data:/opt/keycloak/data
+    command: start --optimized --import-realm
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - edu-atelier-internal
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # ===========================================
+  # Application Services
+  # ===========================================
+
+  # Backend (NestJS)
+  backend:
+    build:
+      context: ../apps/backend
+      dockerfile: Dockerfile
+    image: edu-atelier/backend:${VERSION:-latest}
+    container_name: edu-atelier-backend
+    restart: always
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-edu-atelier}
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: edu-atelier
+      KEYCLOAK_CLIENT_ID: edu-atelier-backend
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
+      AI_SERVICE_URL: http://ai-service:8001
+      VIDEO_SERVICE_URL: http://video-service:8002
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGIN: ${PUBLIC_URL:-https://edu-atelier.example.com}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    networks:
+      - edu-atelier-internal
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+      replicas: 2
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: ../apps/frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${API_URL:-https://api.edu-atelier.example.com}
+        NEXT_PUBLIC_KEYCLOAK_URL: ${KEYCLOAK_PUBLIC_URL:-https://auth.edu-atelier.example.com}
+        NEXT_PUBLIC_KEYCLOAK_REALM: edu-atelier
+        NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: edu-atelier-frontend
+    image: edu-atelier/frontend:${VERSION:-latest}
+    container_name: edu-atelier-frontend
+    restart: always
+    environment:
+      NODE_ENV: production
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - backend
+    networks:
+      - edu-atelier-internal
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+      replicas: 2
+
+  # AI Service (FastAPI + ML Models)
+  ai-service:
+    build:
+      context: ../apps/ai-service
+      dockerfile: Dockerfile
+    image: edu-atelier/ai-service:${VERSION:-latest}
+    container_name: edu-atelier-ai
+    restart: always
+    environment:
+      DEBUG: "false"
+      REDIS_URL: redis://redis:6379
+      MODEL_PATH: /models
+      USE_GPU: ${AI_USE_GPU:-true}
+    volumes:
+      - ai_models:/models
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    depends_on:
+      - redis
+    networks:
+      - edu-atelier-internal
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Video Service (FastAPI + TTS + SadTalker)
+  video-service:
+    build:
+      context: ../apps/video-service
+      dockerfile: Dockerfile
+    image: edu-atelier/video-service:${VERSION:-latest}
+    container_name: edu-atelier-video
+    restart: always
+    environment:
+      DEBUG: "false"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: edu-atelier-videos
+      REDIS_URL: redis://redis:6379
+      USE_GPU: ${VIDEO_USE_GPU:-true}
+    volumes:
+      - video_models:/models
+      - video_temp:/tmp/videos
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    depends_on:
+      - redis
+      - minio
+    networks:
+      - edu-atelier-internal
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # ===========================================
+  # Reverse Proxy & Load Balancer
+  # ===========================================
+
+  nginx:
+    image: nginx:alpine
+    container_name: edu-atelier-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./nginx/html:/usr/share/nginx/html:ro
+    depends_on:
+      - frontend
+      - backend
+      - keycloak
+      - minio
+    networks:
+      - edu-atelier-internal
+      - edu-atelier-public
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ===========================================
+  # Monitoring & Logging (Optional)
+  # ===========================================
+
+  # Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: edu-atelier-prometheus
+    restart: always
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+    networks:
+      - edu-atelier-internal
+    profiles:
+      - monitoring
+
+  # Grafana for dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: edu-atelier-grafana
+    restart: always
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin123}
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    networks:
+      - edu-atelier-internal
+    profiles:
+      - monitoring
+
+  # ===========================================
+  # Backup Service
+  # ===========================================
+
+  backup:
+    image: prodrigestivill/postgres-backup-local
+    container_name: edu-atelier-backup
+    restart: always
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      SCHEDULE: "@daily"
+      BACKUP_KEEP_DAYS: 7
+      BACKUP_KEEP_WEEKS: 4
+      BACKUP_KEEP_MONTHS: 6
+    volumes:
+      - ./backups/postgres:/backups
+    depends_on:
+      - postgres
+    networks:
+      - edu-atelier-internal
+    profiles:
+      - backup
+
+# ===========================================
+# Volumes
+# ===========================================
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+  keycloak_data:
+    driver: local
+  ai_models:
+    driver: local
+  video_models:
+    driver: local
+  video_temp:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+# ===========================================
+# Networks
+# ===========================================
+
+networks:
+  edu-atelier-internal:
+    name: edu-atelier-internal
+    internal: true
+  edu-atelier-public:
+    name: edu-atelier-public
