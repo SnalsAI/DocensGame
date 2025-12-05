@@ -27,15 +27,54 @@ async function bootstrap() {
   // Swagger documentation
   const config = new DocumentBuilder()
     .setTitle('EDU-ATELIER API')
-    .setDescription('API documentation for EDU-ATELIER platform')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .addTag('auth', 'Authentication endpoints')
-    .addTag('users', 'User management')
+    .setDescription(`
+## EDU-ATELIER - Piattaforma EdTech per la Scuola Italiana
+
+API REST per la gestione di:
+- **Contenuti educativi** con AI generativa
+- **Video lezioni** con avatar parlanti
+- **Quiz e giochi** multiplayer
+- **Supporto DSA/BES/L2** con accessibilità avanzata
+
+### Autenticazione
+Tutte le API richiedono autenticazione JWT tramite Keycloak.
+Includi l'header \`Authorization: Bearer <token>\` in ogni richiesta.
+
+### Rate Limiting
+- API pubbliche: 100 req/min
+- API autenticate: 300 req/min
+- WebSocket: illimitato
+
+### Errori comuni
+- \`401\` - Token mancante o non valido
+- \`403\` - Permessi insufficienti
+- \`404\` - Risorsa non trovata
+- \`429\` - Rate limit superato
+    `)
+    .setVersion('1.0.0')
+    .setContact('EDU-ATELIER Team', 'https://edu-atelier.it', 'support@edu-atelier.it')
+    .setLicense('AGPL-3.0', 'https://www.gnu.org/licenses/agpl-3.0.html')
+    .addServer('http://localhost:3001', 'Development')
+    .addServer('https://api.edu-atelier.example.com', 'Production')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'Enter your JWT token from Keycloak',
+      },
+      'JWT-auth',
+    )
+    .addTag('health', 'Health check endpoints')
+    .addTag('auth', 'Authentication & authorization')
+    .addTag('users', 'User management & profiles')
     .addTag('classrooms', 'Classroom management')
-    .addTag('content', 'Content management')
-    .addTag('lessons', 'Video lessons')
-    .addTag('games', 'Gamology engine')
+    .addTag('content', 'Content management & AI generation')
+    .addTag('lessons', 'Video lessons with H5P')
+    .addTag('quizzes', 'Quiz & exercises')
+    .addTag('games', 'Multiplayer game sessions')
+    .addTag('gamification', 'XP, badges & leaderboards')
+    .addTag('accessibility', 'DSA/BES/L2 support')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

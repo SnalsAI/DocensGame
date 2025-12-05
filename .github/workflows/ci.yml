@@ -1,0 +1,228 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  NODE_VERSION: '20'
+  PNPM_VERSION: '8'
+
+jobs:
+  # ===========================================
+  # Lint & Type Check
+  # ===========================================
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run ESLint
+        run: pnpm lint
+
+      - name: Run TypeScript check
+        run: pnpm type-check
+
+  # ===========================================
+  # Backend Tests
+  # ===========================================
+  test-backend:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: eduatelier_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm --filter backend prisma generate
+
+      - name: Run migrations
+        run: pnpm --filter backend prisma migrate deploy
+        env:
+          DATABASE_URL: postgres://test:test@localhost:5432/eduatelier_test
+
+      - name: Run backend tests
+        run: pnpm --filter backend test:cov
+        env:
+          DATABASE_URL: postgres://test:test@localhost:5432/eduatelier_test
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-secret-key
+          NODE_ENV: test
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./apps/backend/coverage/lcov.info
+          flags: backend
+
+  # ===========================================
+  # Frontend Tests
+  # ===========================================
+  test-frontend:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run frontend tests
+        run: pnpm --filter frontend test:ci
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./apps/frontend/coverage/lcov.info
+          flags: frontend
+
+  # ===========================================
+  # Build Check
+  # ===========================================
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_API_URL: https://api.edu-atelier.example.com
+          NEXT_PUBLIC_KEYCLOAK_URL: https://auth.edu-atelier.example.com
+          NEXT_PUBLIC_KEYCLOAK_REALM: edu-atelier
+          NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: edu-atelier-frontend
+
+  # ===========================================
+  # E2E Tests (on main only)
+  # ===========================================
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Browsers
+        run: pnpm --filter frontend exec playwright install --with-deps
+
+      - name: Start services with Docker Compose
+        run: |
+          docker-compose -f docker/docker-compose.dev.yml up -d postgres redis
+          sleep 10
+
+      - name: Run E2E tests
+        run: pnpm --filter frontend test:e2e
+        env:
+          DATABASE_URL: postgres://eduatelier:eduatelier_dev@localhost:5432/eduatelier
+          REDIS_URL: redis://localhost:6379
+
+      - name: Upload Playwright Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: apps/frontend/playwright-report/
+          retention-days: 30

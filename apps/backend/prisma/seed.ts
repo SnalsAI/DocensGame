@@ -325,49 +325,158 @@ La Rivoluzione Francese portò alla fine della monarchia assoluta, alla nascita 
   });
   console.log('✅ Created concept map');
 
-  // Create badges
+  // Create badges - comprehensive list for gamification
   const badges = [
+    // Learning badges
     {
-      name: 'Primo Quiz',
-      description: 'Hai completato il tuo primo quiz!',
-      iconUrl: '/badges/first-quiz.png',
-      criteria: { type: 'quiz_completed', count: 1 },
-      xpValue: 10,
+      name: 'Primo Passo',
+      description: 'Completa la tua prima lezione video',
+      iconUrl: '/badges/first-step.svg',
+      criteria: { type: 'lesson_completed', count: 1 },
+      xpValue: 50,
     },
     {
       name: 'Studente Modello',
-      description: 'Hai completato 10 quiz con almeno 80% di risposte corrette',
-      iconUrl: '/badges/model-student.png',
-      criteria: { type: 'quiz_score', minScore: 80, count: 10 },
+      description: 'Completa 10 lezioni video',
+      iconUrl: '/badges/model-student.svg',
+      criteria: { type: 'lesson_completed', count: 10 },
+      xpValue: 200,
+    },
+    {
+      name: 'Esploratore del Sapere',
+      description: 'Completa 50 lezioni video',
+      iconUrl: '/badges/knowledge-explorer.svg',
+      criteria: { type: 'lesson_completed', count: 50 },
+      xpValue: 500,
+    },
+
+    // Quiz badges
+    {
+      name: 'Prima Risposta',
+      description: 'Completa il tuo primo quiz',
+      iconUrl: '/badges/first-answer.svg',
+      criteria: { type: 'quiz_completed', count: 1 },
+      xpValue: 30,
+    },
+    {
+      name: 'Maestro dei Quiz',
+      description: 'Ottieni il 100% in 5 quiz',
+      iconUrl: '/badges/quiz-master.svg',
+      criteria: { type: 'quiz_perfect', count: 5 },
+      xpValue: 300,
+    },
+    {
+      name: 'Velocista',
+      description: 'Completa un quiz in meno di 1 minuto',
+      iconUrl: '/badges/speedster.svg',
+      criteria: { type: 'quiz_speed', timeLimit: 60 },
+      xpValue: 100,
+    },
+
+    // Game badges
+    {
+      name: 'Giocatore',
+      description: 'Partecipa al tuo primo gioco multiplayer',
+      iconUrl: '/badges/gamer.svg',
+      criteria: { type: 'game_participation', count: 1 },
       xpValue: 50,
     },
     {
       name: 'Campione',
-      description: 'Hai vinto la tua prima partita multiplayer!',
-      iconUrl: '/badges/champion.png',
-      criteria: { type: 'game_win', count: 1 },
-      xpValue: 25,
+      description: 'Vinci 10 giochi multiplayer',
+      iconUrl: '/badges/champion.svg',
+      criteria: { type: 'game_win', count: 10 },
+      xpValue: 500,
     },
     {
-      name: 'Maratoneta',
-      description: 'Hai guardato 10 video-lezioni complete',
-      iconUrl: '/badges/marathon.png',
-      criteria: { type: 'lessons_completed', count: 10 },
-      xpValue: 30,
+      name: 'Boss Slayer',
+      description: 'Sconfiggi 5 boss in Boss Fight',
+      iconUrl: '/badges/boss-slayer.svg',
+      criteria: { type: 'boss_defeated', count: 5 },
+      xpValue: 400,
     },
     {
-      name: 'Collaboratore',
-      description: 'Hai partecipato a 5 giochi cooperativi',
-      iconUrl: '/badges/collaborator.png',
-      criteria: { type: 'coop_games', count: 5 },
-      xpValue: 20,
+      name: 'Dungeon Master',
+      description: 'Completa 10 dungeon',
+      iconUrl: '/badges/dungeon-master.svg',
+      criteria: { type: 'dungeon_completed', count: 10 },
+      xpValue: 400,
     },
     {
-      name: 'Esploratore',
-      description: 'Hai esplorato 5 mappe concettuali',
-      iconUrl: '/badges/explorer.png',
-      criteria: { type: 'maps_viewed', count: 5 },
-      xpValue: 15,
+      name: 'Rapid Fire',
+      description: 'Rispondi correttamente a 10 domande consecutive in Rapid Quiz',
+      iconUrl: '/badges/rapid-fire.svg',
+      criteria: { type: 'rapid_streak', count: 10 },
+      xpValue: 200,
+    },
+
+    // Streak badges
+    {
+      name: 'Costanza',
+      description: 'Accedi per 7 giorni consecutivi',
+      iconUrl: '/badges/consistency.svg',
+      criteria: { type: 'login_streak', count: 7 },
+      xpValue: 150,
+    },
+    {
+      name: 'Dedizione',
+      description: 'Accedi per 30 giorni consecutivi',
+      iconUrl: '/badges/dedication.svg',
+      criteria: { type: 'login_streak', count: 30 },
+      xpValue: 500,
+    },
+    {
+      name: 'Studente Perfetto',
+      description: 'Accedi per 100 giorni consecutivi',
+      iconUrl: '/badges/perfect-student.svg',
+      criteria: { type: 'login_streak', count: 100 },
+      xpValue: 1000,
+    },
+
+    // Social badges
+    {
+      name: 'Team Player',
+      description: 'Partecipa a 10 giochi di squadra',
+      iconUrl: '/badges/team-player.svg',
+      criteria: { type: 'team_game', count: 10 },
+      xpValue: 250,
+    },
+    {
+      name: 'Healer',
+      description: 'Cura la squadra 50 volte in Boss Fight',
+      iconUrl: '/badges/healer.svg',
+      criteria: { type: 'heal_count', count: 50 },
+      xpValue: 300,
+    },
+    {
+      name: 'Defender',
+      description: 'Blocca 50 attacchi in Boss Fight',
+      iconUrl: '/badges/defender.svg',
+      criteria: { type: 'block_count', count: 50 },
+      xpValue: 300,
+    },
+
+    // Achievement badges
+    {
+      name: 'Tuttologo',
+      description: 'Studia contenuti in 5 materie diverse',
+      iconUrl: '/badges/polymath.svg',
+      criteria: { type: 'subjects_studied', count: 5 },
+      xpValue: 350,
+    },
+    {
+      name: 'Early Bird',
+      description: 'Completa un quiz prima delle 8:00',
+      iconUrl: '/badges/early-bird.svg',
+      criteria: { type: 'early_study', hour: 8 },
+      xpValue: 100,
+    },
+    {
+      name: 'Night Owl',
+      description: 'Completa un quiz dopo le 22:00',
+      iconUrl: '/badges/night-owl.svg',
+      criteria: { type: 'late_study', hour: 22 },
+      xpValue: 100,
     },
   ];
 
